@@ -12,8 +12,8 @@ const today = () => new Date().toISOString().split("T")[0];
 // AI ANALYSIS ENGINE
 // ============================================================
 const AI_CONFIG = {
-  AI_ENABLED: false, // ← Mude para true quando backend + .env estiverem prontos
-  API_ENDPOINT: "/api/analyze-document", // ← URL do backend proxy
+  AI_ENABLED: true, // Habilitado para acessar a nova rota do Gemini
+  API_ENDPOINT: "http://localhost:3001/api/analyze-document", // Rota do backend local
 };
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -23,13 +23,9 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   r.readAsDataURL(file);
 });
 
+// A string original de buildAnalysisPrompt ainda fica aí caso precise pra outras coisas, mas o backend vai ter o próprio prompt
 const buildAnalysisPrompt = (checklistType, checklistData) => {
-  const allItems = [];
-  let idx = 0;
-  checklistData.sections.forEach((section) => {
-    section.items.forEach((item) => { allItems.push({ index: idx, section: section.title, item }); idx++; });
-  });
-  return `Você é um analista especializado em licitações e compras públicas da Prefeitura de Boituva, com base na Lei Federal 14.133/21 e Decreto Municipal.\n\nAnalise o documento enviado e verifique cada item do checklist abaixo.\nPara cada item, responda APENAS com um JSON no formato:\n\n{"results":[{"index":0,"found":true,"confidence":"alta","evidence":"Trecho encontrado","observation":"Obs"}],"summary":"Resumo","missing_critical":["Itens críticos faltando"],"recommendations":["Recomendações"]}\n\nOnde:\n- "found": true/false\n- "confidence": "alta", "media" ou "baixa"\n- "evidence": trecho relevante ou null\n- "observation": nota adicional ou null\n\nCHECKLIST TIPO ${checklistType.toUpperCase()} - ${checklistData.title}:\n\n${allItems.map((i) => `[${i.index}] (${i.section}) ${i.item}`).join("\n")}\n\nIMPORTANTE: Seja rigoroso. Prefira falso negativo. Responda SOMENTE JSON.`;
+  return "";
 };
 
 const analyzeDocumentWithAI = async (file, checklistType, checklistData) => {
@@ -37,30 +33,54 @@ const analyzeDocumentWithAI = async (file, checklistType, checklistData) => {
     return { success: false, reason: "AI_NOT_CONFIGURED", message: "Configure a API key no .env do backend para ativar." };
   }
   try {
-    const base64 = await fileToBase64(file);
-    const prompt = buildAnalysisPrompt(checklistType, checklistData);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("fileType", file.type);
+    formData.append("fileName", file.name);
+    formData.append("checklistType", checklistType);
+    formData.append("checklist", JSON.stringify(checklistData));
+
     const response = await fetch(AI_CONFIG.API_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file: base64, fileType: file.type, fileName: file.name, checklistType, prompt }),
+      body: formData, // FormData automatiza o Content-Type: multipart/form-data
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return { success: true, data: await response.json() };
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `HTTP ${response.status}`);
+    }
+
+    // O backend retorna exatamente: { success: true/false, data: { ... } }
+    return await response.json();
   } catch (error) {
     return { success: false, reason: "API_ERROR", message: error.message };
   }
 };
 
-const applyAIResults = (aiData, currentChecked) => {
+const applyAIResults = (aiResult, currentChecked) => {
   const newChecked = { ...currentChecked };
   const annotations = {};
-  if (aiData?.results) {
-    aiData.results.forEach((r) => {
-      if (r.found && r.confidence === "alta") newChecked[r.index] = true;
-      annotations[r.index] = { found: r.found, confidence: r.confidence, evidence: r.evidence, observation: r.observation, autoChecked: r.found && r.confidence === "alta" };
+
+  if (aiResult?.newChecked) {
+    // Mesclar os resultados da IA no checklist do frontend
+    Object.keys(aiResult.newChecked).forEach((k) => {
+      newChecked[k] = aiResult.newChecked[k];
     });
   }
-  return { newChecked, annotations, summary: aiData?.summary, missingCritical: aiData?.missing_critical, recommendations: aiData?.recommendations };
+
+  if (aiResult?.annotations) {
+    Object.keys(aiResult.annotations).forEach((k) => {
+      annotations[k] = aiResult.annotations[k];
+    });
+  }
+
+  return {
+    newChecked,
+    annotations,
+    summary: aiResult?.summary || "",
+    missingCritical: aiResult?.missingCritical || [],
+    recommendations: aiResult?.recommendations || []
+  };
 };
 
 function StatusBadge({ status }) {
@@ -150,12 +170,13 @@ function AIPanel({ processo, checklist, onApplyResults, onUpdate }) {
                 <div>
                   <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 600, color: "#92400e", fontFamily: "'DM Sans', sans-serif" }}>IA não configurada — Documento salvo com sucesso</p>
                   <p style={{ margin: "0 0 8px", fontSize: 12, color: "#a16207", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.6 }}>Para ativar a análise automática:</p>
-                  <div style={{ background: "#1e293b", borderRadius: 8, padding: "12px 16px", fontFamily: "monospace", fontSize: 11, color: "#e2e8f0", lineHeight: 1.8 }}>
-                    <div style={{ color: "#94a3b8" }}># 1. Backend → .env:</div>
-                    <div>ANTHROPIC_API_KEY=sk-ant-xxxxxxxx</div>
-                    <br />
-                    <div style={{ color: "#94a3b8" }}># 2. Crie POST /api/analyze-document</div>
-                    <div style={{ color: "#94a3b8" }}># (recebe arquivo + prompt, chama API Anthropic)</div>
+                  <div style={{ background: "#0f172a", padding: 16, borderRadius: 8, fontFamily: "monospace", fontSize: 13, color: "#e2e8f0" }}>
+                    <div style={{ color: "#fbbf24", marginBottom: 8 }}>// 1. Configure no Backend (.env)</div>
+                    <div>GEMINI_API_KEY=AIzaSyxxxxxxxx...</div>
+                    <div style={{ color: "#fbbf24", margin: "12px 0 8px" }}>// 2. Crie a rota no Backend</div>
+                    <div style={{ color: "#94a3b8", fontStyle: "italic" }}>// POST /api/analyze-document</div>
+                    <div style={{ color: "#94a3b8" }}>// Utilize o SDK oficial:@google/genai</div>
+                    <div style={{ color: "#94a3b8" }}>// Modelo recomendado: gemini-1.5-flash-8b (Flash Lite) ou gemini-1.5-flash</div>
                     <br />
                     <div style={{ color: "#94a3b8" }}># 3. No código, mude:</div>
                     <div>AI_ENABLED: <span style={{ color: "#4ade80" }}>true</span></div>
