@@ -58,6 +58,7 @@ const analyzeDocumentWithAI = async (file, checklistType, checklistData) => {
 };
 
 const applyAIResults = (aiResult, currentChecked) => {
+  console.log("Aplicando resultados da IA:", aiResult);
   const newChecked = { ...currentChecked };
   const annotations = {};
 
@@ -73,6 +74,8 @@ const applyAIResults = (aiResult, currentChecked) => {
       annotations[k] = aiResult.annotations[k];
     });
   }
+
+  console.log("Novo estado do checklist:", newChecked);
 
   return {
     newChecked,
@@ -438,7 +441,7 @@ function ChecklistView({ processo, onUpdate, processos, setSelectedProcesso }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16, marginBottom: 24 }}>
-        <div><h1 style={{ fontSize: 24, fontWeight: 700, color: "#0f172a", fontFamily: "'Playfair Display', serif", margin: 0 }}>{cl.title}</h1><p style={{ color: "#64748b", margin: "4px 0 0", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>{cur.numero ? `Processo \${cur.numero} · ` : ""}{cur.secretaria || ""}</p></div>
+        <div><h1 style={{ fontSize: 24, fontWeight: 700, color: "#0f172a", fontFamily: "'Playfair Display', serif", margin: 0 }}>{cl.title}</h1><p style={{ color: "#64748b", margin: "4px 0 0", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>{cur.numero ? `Processo ${cur.numero} · ` : ""}{cur.secretaria || ""}</p></div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {processos.length > 1 && <select value={selId} onChange={e => { setSelId(e.target.value); const p = processos.find(pp => pp.id === e.target.value); if (p) setSelectedProcesso(p); }} style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: "#fff" }}>{processos.map(p => <option key={p.id} value={p.id}>{p.numero || "Sem nº"} – {p.secretaria || "—"}</option>)}</select>}
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}><ProgressRing percent={pct} size={48} stroke={4} color={cl.color} /><div><div style={{ fontSize: 20, fontWeight: 800, color: cl.color, fontFamily: "'DM Sans', sans-serif" }}>{pct}%</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{cnt}/{tot}</div></div></div>

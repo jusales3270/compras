@@ -3,7 +3,8 @@ import cors from "cors";
 import multer from "multer";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
+const pdfParseObj = require("pdf-parse");
+const pdfParse = pdfParseObj.PDFParse || pdfParseObj;
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 
@@ -18,7 +19,25 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // Initialize Gemini Client
 // Requires GEMINI_API_KEY to be set in .env
-const ai = new GoogleGenAI({});
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+function formatAIError(error) {
+    const errorStr = String(error.message || "");
+    if (errorStr.includes("429") || errorStr.includes("RESOURCE_EXHAUSTED")) {
+        return "Cota de API excedida ou muitas requisições por minuto. Por favor, aguarde alguns instantes ou verifique seu plano no Google AI Studio.";
+    }
+    if (errorStr.includes("404") || errorStr.includes("NOT_FOUND")) {
+        return "Modelo de IA não encontrado. Verifique se o modelo configurado no backend está correto.";
+    }
+    if (errorStr.includes("401") || errorStr.includes("API_KEY_INVALID")) {
+        return "Chave de API inválida. Verifique o arquivo .env no backend.";
+    }
+    try {
+        const parsed = JSON.parse(errorStr);
+        if (parsed.error && parsed.error.message) return parsed.error.message;
+    } catch (e) {}
+    return "Erro na análise da IA: " + error.message;
+}
 
 app.post("/api/analyze-document", upload.single("file"), async (req, res) => {
     try {
@@ -33,8 +52,10 @@ app.post("/api/analyze-document", upload.single("file"), async (req, res) => {
         // 1. Extract text from PDF
         let fileText = "";
         if (req.file.mimetype === "application/pdf") {
-            const data = await pdfParse(req.file.buffer);
-            fileText = data.text;
+            const parser = new pdfParse({ data: req.file.buffer });
+            const result = await parser.getText();
+            fileText = result.text;
+            await parser.destroy();
         } else {
             // For simplicity, handle basic text files or fallback
             fileText = req.file.buffer.toString("utf8");
@@ -56,12 +77,19 @@ Sua missão é ler o documento abaixo e verificar se ele atende aos itens do che
 ${fileText.substring(0, 30000)} // Limiting text to prevent token overflow for massive PDFs
 
 === CHECKLIST (Verifique estes itens) ===
-${checklistItems.map((item, idx) => `- ${item}`).join("\n")}
+${checklistItems.map((item, idx) => `${idx}: ${item}`).join("\n")}
 
 Responda SOMENTE em formato JSON puro, sem formatação Markdown (\`\`\`json), com a seguinte estrutura:
 {
-  "newChecked": { "Nome do item do checklist": true_ou_false },
-  "annotations": { "Nome do item do checklist": "Breve justificativa/página onde achou" },
+  "newChecked": { "índice_numérico_do_item": true_ou_false },
+  "annotations": { 
+      "índice_numérico_do_item": {
+         "found": true_ou_false,
+         "confidence": "alta" | "media" | "baixa",
+         "evidence": "Trecho exato do documento que comprova o item",
+         "observation": "Sua explicação ou justificativa da análise"
+      }
+  },
   "summary": "Resumo geral da análise em 2 frases",
   "missingCritical": ["Lista de itens essenciais que faltaram completamente do documento"],
   "recommendations": ["Ações sugeridas para o responsável do processo"]
@@ -69,7 +97,7 @@ Responda SOMENTE em formato JSON puro, sem formatação Markdown (\`\`\`json), c
 
         // 4. Call Gemini API
         const response = await ai.models.generateContent({
-            model: "gemini-1.5-flash-8b",
+            model: "gemini-3.1-flash-lite-preview",
             contents: prompt,
             config: {
                 temperature: 0.1, // Keep it highly deterministic
@@ -77,7 +105,7 @@ Responda SOMENTE em formato JSON puro, sem formatação Markdown (\`\`\`json), c
             }
         });
 
-        const resultRaw = response.text;
+        const resultRaw = response.candidates[0].content.parts[0].text;
 
         // Attempt to parse the structured JSON from Gemini
         let resultJson;
@@ -97,8 +125,14 @@ Responda SOMENTE em formato JSON puro, sem formatação Markdown (\`\`\`json), c
 
     } catch (error) {
         console.error("Erro na análise da IA:", error);
-        return res.status(500).json({ success: false, reason: "SERVER_ERROR", message: "Erro interno: " + error.message });
+        return res.status(500).json({ success: false, reason: "SERVER_ERROR", message: formatAIError(error) });
     }
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+    console.error("CRITICAL BACKEND ERROR:", err);
+    res.status(500).json({ success: false, message: "Erro interno no servidor: " + err.message });
 });
 
 const PORT = 3001;
