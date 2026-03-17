@@ -12,8 +12,8 @@ const today = () => new Date().toISOString().split("T")[0];
 // AI ANALYSIS ENGINE
 // ============================================================
 const AI_CONFIG = {
-  AI_ENABLED: true, // Habilitado para acessar a nova rota do Gemini
-  API_ENDPOINT: "http://localhost:3001/api/analyze-document", // Rota do backend local
+  AI_ENABLED: true,
+  API_ENDPOINT: "/api/analyze-document", // Caminho relativo para funcionar tanto local quanto no Vercel
 };
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
