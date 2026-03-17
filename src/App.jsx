@@ -13,7 +13,9 @@ const today = () => new Date().toISOString().split("T")[0];
 // ============================================================
 const AI_CONFIG = {
   AI_ENABLED: true,
-  API_ENDPOINT: "/api/analyze-document", // Caminho relativo para funcionar tanto local quanto no Vercel
+  API_ENDPOINT: window.location.hostname === "localhost" 
+    ? "http://localhost:3001/api/analyze-document" 
+    : "/api/analyze-document",
 };
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
