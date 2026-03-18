@@ -21,7 +21,7 @@ if (process.env.GEMINI_API_KEY) {
 app.get("/api/health", (req, res) => {
     res.json({ 
         success: true, 
-        message: "Backend is running (Static Import Fix)", 
+        message: "Backend is running (Model: 3.1 Flash Lite Preview)", 
         hasKey: !!process.env.GEMINI_API_KEY,
         node: process.version
     });
