@@ -17,9 +17,13 @@ app.use(express.json());
 // Set up multer for file uploads in memory
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Initialize Gemini Client
-// Requires GEMINI_API_KEY to be set in .env
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// AI client will be initialized per-request to handle missing env vars gracefully
+let ai = null;
+if (process.env.GEMINI_API_KEY) {
+    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+} else {
+    console.warn("WARNING: GEMINI_API_KEY is not defined in environment variables.");
+}
 
 function formatAIError(error) {
     const errorStr = String(error.message || "");
@@ -38,6 +42,15 @@ function formatAIError(error) {
     } catch (e) {}
     return "Erro na análise da IA: " + error.message;
 }
+
+app.get("/api/health", (req, res) => {
+    res.json({ 
+        success: true, 
+        message: "Backend is running", 
+        env: process.env.NODE_ENV,
+        hasKey: !!process.env.GEMINI_API_KEY
+    });
+});
 
 app.post("/api/analyze-document", upload.single("file"), async (req, res) => {
     try {
@@ -96,6 +109,15 @@ Responda SOMENTE em formato JSON puro, sem formatação Markdown (\`\`\`json), c
 }`;
 
         // 4. Call Gemini API
+        if (!ai) {
+             // Try to initialize if it wasn't (double check)
+             if (process.env.GEMINI_API_KEY) {
+                 ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+             } else {
+                 return res.status(500).json({ success: false, reason: "AI_NOT_CONFIGURED", message: "Chave de API do Gemini não encontrada nas variáveis de ambiente." });
+             }
+        }
+
         const response = await ai.models.generateContent({
             model: "models/gemini-3.1-flash-lite-preview",
             contents: prompt,
