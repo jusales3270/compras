@@ -1,9 +1,6 @@
 import express from "express";
 import cors from "cors";
 import multer from "multer";
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
 import dotenv from "dotenv";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -15,30 +12,15 @@ app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Initialize Gemini Client with old SDK
 let genAI = null;
 if (process.env.GEMINI_API_KEY) {
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 }
 
-function formatAIError(error) {
-    const errorStr = String(error.message || "");
-    if (errorStr.includes("429") || errorStr.includes("RESOURCE_EXHAUSTED")) {
-        return "Cota de API excedida ou muitas requisições por minuto. Por favor, aguarde alguns instantes ou verifique seu plano no Google AI Studio.";
-    }
-    if (errorStr.includes("404") || errorStr.includes("NOT_FOUND")) {
-        return "Modelo de IA não encontrado. Verifique se o modelo configurado no backend está correto.";
-    }
-    if (errorStr.includes("401") || errorStr.includes("API_KEY_INVALID")) {
-        return "Chave de API inválida. Verifique o arquivo .env no backend.";
-    }
-    return "Erro na análise da IA: " + error.message;
-}
-
 app.get("/api/health", (req, res) => {
     res.json({ 
         success: true, 
-        message: "Backend is running with stable dependencies", 
+        message: "Backend is running (Node 20 explicitly set)", 
         hasKey: !!process.env.GEMINI_API_KEY,
         node: process.version
     });
@@ -58,11 +40,21 @@ app.post("/api/analyze-document", upload.single("file"), async (req, res) => {
             genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         }
 
-        // 1. Extract text from PDF
+        // 1. Extract text from PDF (using dynamic import to avoid top-level crash)
         let fileText = "";
         if (req.file.mimetype === "application/pdf") {
-            const result = await pdfParse(req.file.buffer);
-            fileText = result.text;
+            try {
+                // Import pdf-parse dynamically. Note: Depending on version, might need .default or createRequire
+                // For pdf-parse 1.1.1, we'll try common import patterns
+                const { createRequire } = await import("module");
+                const require = createRequire(import.meta.url);
+                const pdfParse = require("pdf-parse");
+                const result = await pdfParse(req.file.buffer);
+                fileText = result.text;
+            } catch (pdfError) {
+                console.error("PDF Parsing Error:", pdfError);
+                return res.status(500).json({ success: false, message: "Erro ao processar PDF: " + pdfError.message });
+            }
         } else {
             fileText = req.file.buffer.toString("utf8");
         }
@@ -92,7 +84,6 @@ Responda SOMENTE em JSON puro:
   "recommendations": []
 }`;
 
-        // Using gemini-1.5-flash which is the most stable across all accounts
         const model = genAI.getGenerativeModel({ 
             model: "gemini-1.5-flash",
             generationConfig: { responseMimeType: "application/json" }
@@ -113,13 +104,8 @@ Responda SOMENTE em JSON puro:
 
     } catch (error) {
         console.error("Erro na análise:", error);
-        return res.status(500).json({ success: false, reason: "SERVER_ERROR", message: formatAIError(error) });
+        return res.status(500).json({ success: false, reason: "SERVER_ERROR", message: "Erro na IA: " + error.message });
     }
-});
-
-app.use((err, req, res, next) => {
-    console.error("CRITICAL ERROR:", err);
-    res.status(500).json({ success: false, message: "Erro interno: " + err.message });
 });
 
 export default app;
