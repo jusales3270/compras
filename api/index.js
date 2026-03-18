@@ -82,7 +82,7 @@ Responda SOMENTE em JSON puro:
 }`;
 
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.0-flash-lite-preview-02-05",
+            model: "gemini-3.1-flash-lite",
             generationConfig: { responseMimeType: "application/json" }
         });
 
