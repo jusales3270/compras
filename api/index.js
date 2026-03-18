@@ -97,7 +97,7 @@ Responda SOMENTE em formato JSON puro, sem formatação Markdown (\`\`\`json), c
 
         // 4. Call Gemini API
         const response = await ai.models.generateContent({
-            model: "gemini-3.1-flash-lite-preview",
+            model: "models/gemini-3.1-flash-lite-preview",
             contents: prompt,
             config: {
                 temperature: 0.1, // Keep it highly deterministic
