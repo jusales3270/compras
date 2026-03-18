@@ -3,6 +3,7 @@ import cors from "cors";
 import multer from "multer";
 import dotenv from "dotenv";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import pdfParse from "pdf-parse";
 
 dotenv.config();
 
@@ -20,7 +21,7 @@ if (process.env.GEMINI_API_KEY) {
 app.get("/api/health", (req, res) => {
     res.json({ 
         success: true, 
-        message: "Backend is running (Node 20 explicitly set)", 
+        message: "Backend is running (Static Import Fix)", 
         hasKey: !!process.env.GEMINI_API_KEY,
         node: process.version
     });
@@ -40,15 +41,11 @@ app.post("/api/analyze-document", upload.single("file"), async (req, res) => {
             genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         }
 
-        // 1. Extract text from PDF (using dynamic import to avoid top-level crash)
+        // 1. Extract text from PDF
         let fileText = "";
         if (req.file.mimetype === "application/pdf") {
             try {
-                // Import pdf-parse dynamically. Note: Depending on version, might need .default or createRequire
-                // For pdf-parse 1.1.1, we'll try common import patterns
-                const { createRequire } = await import("module");
-                const require = createRequire(import.meta.url);
-                const pdfParse = require("pdf-parse");
+                // Using the top-level imported pdfParse
                 const result = await pdfParse(req.file.buffer);
                 fileText = result.text;
             } catch (pdfError) {
